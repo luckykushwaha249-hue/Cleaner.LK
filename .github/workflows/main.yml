@@ -51,16 +51,19 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
 
-      - name: Build APK with Buildozer
-        run: |
-          yes | buildozer android debug
+      # Retries the build up to 3 times because NDK/SDK downloads from
+      # Google/GitHub servers occasionally fail with transient errors
+      # like "502 Bad Gateway" that are unrelated to the app's code.
+      - name: Build APK with Buildozer (with retry on transient network errors)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 40
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: yes | buildozer android debug
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          # Fallback safety net: if a bundled C/C++ dependency (e.g.
-          # harfbuzz inside SDL2_ttf) still fails to compile with
-          # -Werror on newer NDK clang versions, downgrade those errors
-          # back to warnings so the build doesn't hard-fail on them.
           CFLAGS: "-Wno-error=format-security -Wno-error=cast-function-type-strict -Wno-error"
           CXXFLAGS: "-Wno-error=format-security -Wno-error=cast-function-type-strict -Wno-error"
 
