@@ -57,6 +57,12 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          # Fallback safety net: if a bundled C/C++ dependency (e.g.
+          # harfbuzz inside SDL2_ttf) still fails to compile with
+          # -Werror on newer NDK clang versions, downgrade those errors
+          # back to warnings so the build doesn't hard-fail on them.
+          CFLAGS: "-Wno-error=format-security -Wno-error=cast-function-type-strict -Wno-error"
+          CXXFLAGS: "-Wno-error=format-security -Wno-error=cast-function-type-strict -Wno-error"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
