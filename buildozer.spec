@@ -26,13 +26,10 @@ android.permissions = INTERNET,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORA
 android.api = 33
 android.minapi = 24
 android.ndk = 25b
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = arm64-v8a
 android.allow_backup = True
 
-# Fixes a known harfbuzz/SDL2_ttf compile failure with newer NDK clang
-# versions by using the p4a "develop" branch, which has the fix merged.
-# Ref: https://github.com/orgs/kivy/discussions/28
-p4a.branch = develop
+p4a.branch = master
 
 # Needed for modern Android (13+) scoped storage / media access
 android.add_permissions = READ_MEDIA_IMAGES, READ_MEDIA_VIDEO
