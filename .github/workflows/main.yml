@@ -32,10 +32,6 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython==0.29.36
 
-      # Optional: write API keys from GitHub Secrets into secrets.json
-      # so the CI-built APK works out of the box for personal testing.
-      # Add GEMINI_API_KEY / CLAUDE_API_KEY as repo secrets under
-      # Settings > Secrets and variables > Actions.
       - name: Write secrets.json (optional, for personal test builds only)
         run: |
           python - <<'PY'
@@ -51,23 +47,24 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
 
-      # Retries the build up to 3 times because NDK/SDK downloads from
-      # Google/GitHub servers occasionally fail with transient errors
-      # like "502 Bad Gateway" that are unrelated to the app's code.
-      - name: Build APK with Buildozer (with retry on transient network errors)
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 40
-          max_attempts: 3
-          retry_wait_seconds: 30
-          command: yes | buildozer android debug
+      - name: Build APK with Buildozer
+        run: |
+          yes | buildozer android debug 2>&1 | tee buildozer_full_log.txt
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          CFLAGS: "-Wno-error=format-security -Wno-error=cast-function-type-strict -Wno-error"
-          CXXFLAGS: "-Wno-error=format-security -Wno-error=cast-function-type-strict -Wno-error"
+          CFLAGS: "-Wno-error"
+          CXXFLAGS: "-Wno-error"
+
+      - name: Upload full build log (always, even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildozer-full-log
+          path: buildozer_full_log.txt
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: llb-notes-cleaner-apk
