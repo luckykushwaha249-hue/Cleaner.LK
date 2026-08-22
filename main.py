@@ -44,7 +44,14 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.textfield import MDTextField
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    PIL_AVAILABLE = True
+    PIL_IMPORT_ERROR = None
+except Exception as _pil_err:
+    PIL_AVAILABLE = False
+    PIL_IMPORT_ERROR = _pil_err
+    Image = ImageDraw = ImageFont = ImageOps = None
 
 import config
 
@@ -141,6 +148,8 @@ def preprocess_image(src_path, dst_path):
     Original file passed in is left untouched by the caller; this writes
     a NEW file at dst_path used only for AI analysis.
     """
+    if not PIL_AVAILABLE:
+        raise RuntimeError(f"Pillow (PIL) is not available on this device: {PIL_IMPORT_ERROR}")
     img = Image.open(src_path)
     img = ImageOps.exif_transpose(img)  # correct rotation from EXIF
     img = img.convert("RGB")
@@ -414,6 +423,8 @@ def render_clean_image(verified_text, out_path):
     Uses a Hindi+English capable font if available (see config.py),
     otherwise falls back to PIL's default font.
     """
+    if not PIL_AVAILABLE:
+        raise RuntimeError(f"Pillow (PIL) is not available on this device: {PIL_IMPORT_ERROR}")
     width = 1240  # ~A4 at 150dpi, portrait
     margin = 60
     line_height = 40
@@ -1000,5 +1011,64 @@ class LLBNotesCleanerApp(MDApp):
         ).open()
 
 
+def _write_crash_log(text):
+    try:
+        crash_path = os.path.join(get_data_dir(), "last_crash.txt")
+        with open(crash_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return crash_path
+    except Exception:
+        return None
+
+
+def _run_crash_screen(traceback_text, crash_path):
+    """Minimal, dependency-light Kivy app (no KivyMD) that just shows the
+    crash traceback on screen so it is visible instead of the app silently
+    closing. This runs only if the main app fails to start."""
+    from kivy.app import App
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.label import Label
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.core.window import Window as KWindow
+
+    header = (
+        "LLB Notes Cleaner failed to start.\n"
+        f"Crash log saved to:\n{crash_path}\n"
+        "Please screenshot this and share it.\n"
+        + ("-" * 40) + "\n\n"
+    )
+    full_text = header + traceback_text
+
+    class CrashApp(App):
+        def build(self):
+            root = BoxLayout(orientation="vertical")
+            sv = ScrollView()
+            lbl = Label(
+                text=full_text,
+                size_hint_y=None,
+                halign="left",
+                valign="top",
+                text_size=(KWindow.width - 30, None),
+                color=(1, 1, 1, 1),
+            )
+            lbl.bind(texture_size=lambda inst, val: setattr(lbl, "height", val[1]))
+            sv.add_widget(lbl)
+            root.add_widget(sv)
+            return root
+
+    CrashApp().run()
+
+
 if __name__ == "__main__":
-    LLBNotesCleanerApp().run()
+    try:
+        LLBNotesCleanerApp().run()
+    except Exception:
+        import traceback
+        tb_text = traceback.format_exc()
+        saved_path = _write_crash_log(tb_text) or "(could not save crash log file)"
+        try:
+            _run_crash_screen(tb_text, saved_path)
+        except Exception:
+            # Even the fallback crash screen failed - nothing more we can
+            # safely do, but the crash log file may still have been written.
+            pass
