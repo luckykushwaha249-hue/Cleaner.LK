@@ -179,17 +179,19 @@ term is present unless it is actually visible in the image."""
 def gemini_extract_text(image_path, user_instruction=""):
     """Step 1: Gemini reads the raw image and extracts ALL visible text,
     structure (headings/paragraphs/numbering), without summarizing.
+
+    NOTE: This calls Gemini's REST API directly via `requests` instead of
+    the google-generativeai SDK. The SDK pulls in grpcio/protobuf, which
+    are very difficult to cross-compile for Android via Buildozer. The
+    REST API gives identical results with a much lighter dependency
+    footprint (just `requests`, already required elsewhere in this app).
     """
-    import google.generativeai as genai
+    import requests
 
     if not config.GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured. See config.py / README.")
 
-    genai.configure(api_key=config.GEMINI_API_KEY)
-    model = genai.GenerativeModel(config.GEMINI_MODEL)
-
-    with open(image_path, "rb") as f:
-        image_bytes = f.read()
+    image_b64 = image_to_base64(image_path)
 
     prompt = f"""{LLB_CONTEXT_PROMPT}
 
@@ -213,13 +215,28 @@ User instruction (optional, does not override the accuracy rules above):
 
 Return ONLY the transcribed text, preserving structure with line breaks."""
 
-    response = model.generate_content(
-        [
-            prompt,
-            {"mime_type": "image/jpeg", "data": image_bytes},
-        ]
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}"
     )
-    return (response.text or "").strip()
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                ]
+            }
+        ]
+    }
+    resp = requests.post(url, json=payload, timeout=90)
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts).strip()
+    except (KeyError, IndexError) as e:
+        raise RuntimeError(f"Unexpected Gemini response format: {data}") from e
 
 
 def web_verify_term(term):
@@ -248,17 +265,44 @@ def web_verify_term(term):
     return None
 
 
+def _claude_api_call(system_prompt, tools, messages):
+    """Low-level helper: calls Claude's REST API directly via `requests`
+    instead of the `anthropic` SDK. The SDK pulls in pydantic (with its
+    Rust-based pydantic-core extension) and httpx/httpcore/anyio, which
+    are difficult or impossible to cross-compile for Android via
+    Buildozer. The REST API gives identical results with only `requests`
+    as a dependency, which is already required elsewhere in this app.
+    """
+    import requests
+
+    resp = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": config.CLAUDE_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": config.CLAUDE_MODEL,
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "tools": tools,
+            "messages": messages,
+        },
+        timeout=90,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def claude_verify_text(image_path, gemini_text):
     """Step 2: Claude cross-checks Gemini's extracted text against the
     original image, corrects OCR mistakes using LLB context, and may call
     a web-verification tool for unclear legal terms/case names.
     """
-    import anthropic
-
     if not config.CLAUDE_API_KEY:
         raise RuntimeError("CLAUDE_API_KEY is not configured. See config.py / README.")
 
-    client = anthropic.Anthropic(api_key=config.CLAUDE_API_KEY)
     image_b64 = image_to_base64(image_path)
 
     tools = [
@@ -331,36 +375,30 @@ explanations, no markdown code fences)."""
 
     # Allow a couple of tool-use round trips for web verification
     for _ in range(4):
-        response = client.messages.create(
-            model=config.CLAUDE_MODEL,
-            max_tokens=4096,
-            system=system_prompt,
-            tools=tools,
-            messages=messages,
-        )
+        response = _claude_api_call(system_prompt, tools, messages)
+        content_blocks = response.get("content", [])
+        stop_reason = response.get("stop_reason")
 
-        if response.stop_reason == "tool_use":
+        if stop_reason == "tool_use":
             tool_results = []
-            assistant_content = []
-            for block in response.content:
-                assistant_content.append(block)
-                if block.type == "tool_use" and block.name == "verify_legal_term":
-                    term = block.input.get("term", "")
+            for block in content_blocks:
+                if block.get("type") == "tool_use" and block.get("name") == "verify_legal_term":
+                    term = block.get("input", {}).get("term", "")
                     snippet = web_verify_term(term) or "No verification available."
                     tool_results.append(
                         {
                             "type": "tool_result",
-                            "tool_use_id": block.id,
+                            "tool_use_id": block.get("id"),
                             "content": snippet,
                         }
                     )
-            messages.append({"role": "assistant", "content": assistant_content})
+            messages.append({"role": "assistant", "content": content_blocks})
             messages.append({"role": "user", "content": tool_results})
             continue
 
         # Final answer
         final_text = "".join(
-            block.text for block in response.content if block.type == "text"
+            block.get("text", "") for block in content_blocks if block.get("type") == "text"
         )
         return final_text.strip()
 
