@@ -278,39 +278,37 @@ class LLBApp(App):
             self.status(f"Picker error: {e}")
 
     def on_image_selected(self, selection):
-        if selection:
-            self.pending_image = selection[0]
-            self.status("Image selected. Tap Send.")
+        if not selection:
+            return
+        img_path = selection[0]
+        instruction = self.root_widget.ids.msg_input.text.strip()
+        self.root_widget.ids.msg_input.text = ""
+        d = data_dir()
+        ts = int(datetime.now().timestamp() * 1000)
+        dest = os.path.join(d, "orig", f"orig_{ts}.jpg")
+        try:
+            Image.open(img_path).convert("RGB").save(dest, quality=92)
+        except Exception as e:
+            self.status(f"Could not read image: {e}")
+            return
+        self.history.append({"type": "orig_image", "path": dest})
+        save_history(self.history)
+        self.render_history()
+        if instruction:
+            self.history.append({"type": "text", "text": instruction})
+            save_history(self.history)
+            self.render_history()
+        threading.Thread(target=self.run_pipeline, args=(dest, instruction), daemon=True).start()
 
     def on_send(self):
         text = self.root_widget.ids.msg_input.text.strip()
         self.root_widget.ids.msg_input.text = ""
-
-        if self.pending_image:
-            img_path = self.pending_image
-            self.pending_image = None
-            d = data_dir()
-            ts = int(datetime.now().timestamp() * 1000)
-            dest = os.path.join(d, "orig", f"orig_{ts}.jpg")
-            try:
-                Image.open(img_path).convert("RGB").save(dest, quality=92)
-            except Exception as e:
-                self.status(f"Could not read image: {e}")
-                return
-            self.history.append({"type": "orig_image", "path": dest})
-            save_history(self.history)
-            self.render_history()
-            if text:
-                self.history.append({"type": "text", "text": text})
-                save_history(self.history)
-                self.render_history()
-            threading.Thread(target=self.run_pipeline, args=(dest, text), daemon=True).start()
-        elif text:
+        if text:
             self.history.append({"type": "text", "text": text})
             save_history(self.history)
             self.render_history()
         else:
-            self.status("Attach an image with + or type something.")
+            self.status("Type something, or tap + to attach an image.")
 
     def status(self, text):
         self.history.append({"type": "status", "text": text})
