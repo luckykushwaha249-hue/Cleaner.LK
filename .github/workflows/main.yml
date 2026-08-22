@@ -48,8 +48,14 @@ jobs:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
 
       - name: Build APK with Buildozer
+        shell: bash
         run: |
+          set -o pipefail
           yes | buildozer android debug 2>&1 | tee buildozer_full_log.txt
+          if [ ! -f bin/*.apk ]; then
+            echo "ERROR: No APK was produced in bin/. Failing this step explicitly."
+            exit 1
+          fi
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
