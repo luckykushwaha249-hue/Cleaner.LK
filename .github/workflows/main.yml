@@ -65,8 +65,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          CFLAGS: "-Wno-error"
-          CXXFLAGS: "-Wno-error"
+          CFLAGS: "-Wno-error -Wno-error=incompatible-function-pointer-types"
+          CXXFLAGS: "-Wno-error -Wno-error=incompatible-function-pointer-types"
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
 
       - name: Upload full build log (always, even on failure)
