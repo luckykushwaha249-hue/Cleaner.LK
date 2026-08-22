@@ -1,84 +1,29 @@
-name: Build Android APK
+[app]
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ "main" ]
+title = LLB Notes Cleaner
+package.name = llbnotescleaner
+package.domain = org.llbstudent
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
+source.dir = .
+source.include_exts = py,png,jpg,jpeg,kv,atlas,ttf,json
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+version = 1.0.0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+requirements = python3==3.11.9,hostpython3==3.11.9,cython==0.29.33,kivy==2.3.0,kivymd==1.2.0,pillow,requests,plyer,certifi,chardet,idna,urllib3
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip openjdk-17-jdk python3-pip autoconf libtool \
-            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
-            libtinfo5 cmake libffi-dev libssl-dev build-essential \
-            libltdl-dev
+orientation = portrait
+fullscreen = 0
 
-      - name: Install Buildozer + Cython
-        run: |
-          pip install --upgrade pip
-          pip install buildozer cython==0.29.36
+android.permissions = INTERNET,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
 
-      - name: Write secrets.json (optional, for personal test builds only)
-        run: |
-          python - <<'PY'
-          import json, os
-          secrets = {
-              "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
-              "CLAUDE_API_KEY": os.environ.get("CLAUDE_API_KEY", ""),
-          }
-          with open("secrets.json", "w") as f:
-              json.dump(secrets, f)
-          PY
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+android.api = 33
+android.minapi = 24
+android.ndk = 25b
+android.archs = arm64-v8a
+android.allow_backup = True
 
-      - name: Build APK with Buildozer
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | buildozer android debug 2>&1 | tee buildozer_full_log.txt
-          buildozer_exit=${PIPESTATUS[1]}
-          if [ "$buildozer_exit" -ne 0 ]; then
-            echo "ERROR: buildozer exited with code $buildozer_exit"
-            exit 1
-          fi
-          if [ ! -f bin/*.apk ]; then
-            echo "ERROR: No APK was produced in bin/. Failing this step explicitly."
-            exit 1
-          fi
-          echo "Build succeeded, APK found in bin/."
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          CFLAGS: "-Wno-error -Wno-error=incompatible-function-pointer-types"
-          CXXFLAGS: "-Wno-error -Wno-error=incompatible-function-pointer-types"
-          JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
+android.add_permissions = READ_MEDIA_IMAGES, READ_MEDIA_VIDEO
 
-      - name: Upload full build log (always, even on failure)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: buildozer-full-log
-          path: buildozer_full_log.txt
-
-      - name: Upload APK artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: llb-notes-cleaner-apk
-          path: bin/*.apk
+[buildozer]
+log_level = 2
+warn_on_root = 1
