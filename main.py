@@ -18,13 +18,30 @@ project's "keep it simple" requirement. Sections are clearly commented.
 """
 
 import os
+import sys
 import io
 import json
 import base64
 import threading
 import textwrap
+import traceback
 from datetime import datetime
 
+
+def _log(msg):
+    """Prints to stdout, which p4a routes into logcat under the 'python'
+    tag -- this is visible even if Kivy/KivyMD never manage to load."""
+    try:
+        print("[LLBNotesCleaner] " + str(msg))
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+_log("Starting imports...")
+
+# Core Kivy imports. If these fail, nothing else can run -- but the
+# print() above and any traceback below will still appear in logcat.
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.metrics import dp
@@ -32,17 +49,31 @@ from kivy.properties import StringProperty, BooleanProperty, ObjectProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import AsyncImage
 from kivy.lang import Builder
+from kivy.app import App
+from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
 
-from kivymd.app import MDApp
-from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix.label import MDLabel
-from kivymd.uix.button import MDIconButton, MDRaisedButton, MDFlatButton
-from kivymd.uix.menu import MDDropdownMenu
-from kivymd.uix.dialog import MDDialog
-from kivymd.uix.snackbar import Snackbar
-from kivymd.uix.card import MDCard
-from kivymd.uix.scrollview import MDScrollView
-from kivymd.uix.textfield import MDTextField
+_log("Core Kivy imports OK")
+
+# KivyMD, Pillow, config: these are more likely to fail on a fresh device
+# (missing native libs, packaging issues). Import them defensively so we
+# can show a real error screen instead of a silent crash.
+STARTUP_ERROR = None
+try:
+    from kivymd.app import MDApp
+    from kivymd.uix.boxlayout import MDBoxLayout
+    from kivymd.uix.label import MDLabel
+    from kivymd.uix.button import MDIconButton, MDRaisedButton, MDFlatButton
+    from kivymd.uix.menu import MDDropdownMenu
+    from kivymd.uix.dialog import MDDialog
+    from kivymd.uix.snackbar import Snackbar
+    from kivymd.uix.card import MDCard
+    from kivymd.uix.scrollview import MDScrollView
+    from kivymd.uix.textfield import MDTextField
+    _log("KivyMD imports OK")
+except Exception:
+    STARTUP_ERROR = "KivyMD failed to import:\n" + traceback.format_exc()
+    _log(STARTUP_ERROR)
 
 try:
     from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -52,8 +83,14 @@ except Exception as _pil_err:
     PIL_AVAILABLE = False
     PIL_IMPORT_ERROR = _pil_err
     Image = ImageDraw = ImageFont = ImageOps = None
+    _log("PIL failed to import: " + repr(_pil_err))
 
-import config
+try:
+    import config
+    _log("config import OK")
+except Exception:
+    STARTUP_ERROR = (STARTUP_ERROR or "") + "\nconfig.py failed to import:\n" + traceback.format_exc()
+    _log(STARTUP_ERROR)
 
 # ---------------------------------------------------------------------------
 # Optional Android-only imports (guarded so the app still runs on desktop
@@ -1025,12 +1062,6 @@ def _run_crash_screen(traceback_text, crash_path):
     """Minimal, dependency-light Kivy app (no KivyMD) that just shows the
     crash traceback on screen so it is visible instead of the app silently
     closing. This runs only if the main app fails to start."""
-    from kivy.app import App
-    from kivy.uix.scrollview import ScrollView
-    from kivy.uix.label import Label
-    from kivy.uix.boxlayout import BoxLayout
-    from kivy.core.window import Window as KWindow
-
     header = (
         "LLB Notes Cleaner failed to start.\n"
         f"Crash log saved to:\n{crash_path}\n"
@@ -1048,7 +1079,7 @@ def _run_crash_screen(traceback_text, crash_path):
                 size_hint_y=None,
                 halign="left",
                 valign="top",
-                text_size=(KWindow.width - 30, None),
+                text_size=(Window.width - 30, None),
                 color=(1, 1, 1, 1),
             )
             lbl.bind(texture_size=lambda inst, val: setattr(lbl, "height", val[1]))
@@ -1060,15 +1091,22 @@ def _run_crash_screen(traceback_text, crash_path):
 
 
 if __name__ == "__main__":
-    try:
-        LLBNotesCleanerApp().run()
-    except Exception:
-        import traceback
-        tb_text = traceback.format_exc()
-        saved_path = _write_crash_log(tb_text) or "(could not save crash log file)"
+    _log("Entering main block")
+    if STARTUP_ERROR:
+        _log("Startup had import errors, going straight to crash screen")
+        saved_path = _write_crash_log(STARTUP_ERROR) or "(could not save crash log file)"
         try:
-            _run_crash_screen(tb_text, saved_path)
+            _run_crash_screen(STARTUP_ERROR, saved_path)
         except Exception:
-            # Even the fallback crash screen failed - nothing more we can
-            # safely do, but the crash log file may still have been written.
-            pass
+            _log("Fallback crash screen also failed:\n" + traceback.format_exc())
+    else:
+        try:
+            LLBNotesCleanerApp().run()
+        except Exception:
+            tb_text = traceback.format_exc()
+            _log("App crashed during run():\n" + tb_text)
+            saved_path = _write_crash_log(tb_text) or "(could not save crash log file)"
+            try:
+                _run_crash_screen(tb_text, saved_path)
+            except Exception:
+                _log("Fallback crash screen also failed:\n" + traceback.format_exc())
