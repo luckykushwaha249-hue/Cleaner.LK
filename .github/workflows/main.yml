@@ -50,6 +50,7 @@ jobs:
       - name: Build APK with Buildozer
         shell: bash
         run: |
+          set +o pipefail
           yes | buildozer android debug 2>&1 | tee buildozer_full_log.txt
           buildozer_exit=${PIPESTATUS[1]}
           if [ "$buildozer_exit" -ne 0 ]; then
