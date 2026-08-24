@@ -32,6 +32,22 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython==0.29.36
 
+      - name: Patch freetype recipe to use a reliable mirror
+        run: |
+          python - <<'PY'
+          import pythonforandroid, os
+          recipe_path = os.path.join(os.path.dirname(pythonforandroid.__file__), "recipes", "freetype", "__init__.py")
+          with open(recipe_path, "r") as f:
+              content = f.read()
+          content = content.replace(
+              "https://download.savannah.gnu.org/releases/freetype/",
+              "https://downloads.sourceforge.net/project/freetype/freetype2/{version}/",
+          )
+          with open(recipe_path, "w") as f:
+              f.write(content)
+          print("Patched:", recipe_path)
+          PY
+
       - name: Write secrets.json (optional, for personal test builds only)
         run: |
           python - <<'PY'
